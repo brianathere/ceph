@@ -19,6 +19,16 @@ int aio_queue_t::submit_batch(aio_iter begin, aio_iter end,
 			      void *priv,
 			      int *retries, int submit_retries, int initial_delay_us)
 {
+#if defined(HAVE_DARWIN_AIO)
+  // aio_queue_t (POSIX AIO) is compiled on macOS only so the shared aio_t /
+  // IOContext infrastructure stays available; it is never selected at runtime
+  // (darwin_gcd_queue_t is the Darwin backend -- see bdev_dispatchio), and
+  // POSIX AIO is unusable on macOS regardless (kern.aioprocmax). Stub the body
+  // so the bit-rotted FreeBSD POSIXAIO submit path is not compiled on Darwin.
+  (void)begin; (void)end; (void)priv;
+  (void)retries; (void)submit_retries; (void)initial_delay_us;
+  ceph_abort_msg("aio_queue_t POSIX-AIO backend is unsupported on macOS");
+#else
   // 2^16 * 125us = ~8 seconds, so default max sleep is ~16 seconds
   int attempts = submit_retries;
   uint64_t delay = initial_delay_us;
@@ -48,7 +58,7 @@ int aio_queue_t::submit_batch(aio_iter begin, aio_iter end,
     }
 #elif defined(HAVE_POSIXAIO)
     cur->priv = priv;
-    if ((cur->n_aiocb == 1) {
+    if (cur->n_aiocb == 1) {
       // TODO: consider batching multiple reads together with lio_listio
       cur->aio.aiocb.aio_sigevent.sigev_notify = SIGEV_KEVENT;
       cur->aio.aiocb.aio_sigevent.sigev_notify_kqueue = ctx;
@@ -79,10 +89,15 @@ int aio_queue_t::submit_batch(aio_iter begin, aio_iter end,
     pushed = pulled = 0;
   }
   return done;
+#endif // HAVE_DARWIN_AIO
 }
 
 int aio_queue_t::get_next_completed(int timeout_ms, aio_t **paio, int max)
 {
+#if defined(HAVE_DARWIN_AIO)
+  (void)timeout_ms; (void)paio; (void)max;
+  ceph_abort_msg("aio_queue_t POSIX-AIO backend is unsupported on macOS");
+#else
 #if defined(HAVE_LIBAIO)
   io_event events[max];
 #elif defined(HAVE_POSIXAIO)
@@ -131,4 +146,5 @@ int aio_queue_t::get_next_completed(int timeout_ms, aio_t **paio, int max)
 #endif
   }
   return r;
+#endif // HAVE_DARWIN_AIO
 }

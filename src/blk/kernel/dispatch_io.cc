@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <vector>
+#include <boost/container/small_vector.hpp>  // explicit: used in the worker block
 
 #include <dispatch/dispatch.h>
 #include <sys/event.h>
@@ -30,6 +31,16 @@ struct darwin_gcd_data {
   dispatch_semaphore_t depth = nullptr; // bounds in-flight IOs => bounds blocked threads
   std::mutex lock;                      // guards `completed`
   std::deque<aio_t*> completed;         // finished aios awaiting the reaper
+
+  // Best-effort cleanup if shutdown() was never called (abnormal teardown).
+  // The normal path runs shutdown() first, which nulls these out, so this is
+  // then a no-op; it keeps us from leaking the kqueue fd / dispatch objects
+  // the way aio_queue_t avoids leaking its io_context.
+  ~darwin_gcd_data() {
+    if (io_q) dispatch_release(io_q);
+    if (depth) dispatch_release(depth);
+    if (kq >= 0) ::close(kq);
+  }
 };
 
 bool darwin_gcd_queue_t::supported()
@@ -189,7 +200,8 @@ int darwin_gcd_queue_t::submit_batch(aio_iter begin, aio_iter end,
     ++submitted;
   }
 
-  // Number of IOs accepted (>0). KernelDevice asserts == number submitted.
+  // Number of IOs accepted (>0). aio_submit only requires a non-negative
+  // return (it asserts r >= 0), matching aio_queue_t/ioring_queue_t.
   return submitted;
 }
 
