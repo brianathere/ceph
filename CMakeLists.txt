@@ -249,6 +249,15 @@ if(WITH_BLUESTORE)
     # POSIX AIO is integrated into FreeBSD kernel, and exposed by libc.
     set(HAVE_POSIXAIO ON)
   endif()
+  if(APPLE)
+    # HAVE_POSIXAIO keeps the shared aio_t/IOContext infrastructure compiled
+    # (it is gated on HAVE_LIBAIO OR HAVE_POSIXAIO); it is NOT the runtime
+    # backend. HAVE_DARWIN_AIO selects the idiomatic libdispatch+kqueue backend
+    # (src/blk/kernel/dispatch_io.cc), which has none of POSIX AIO's
+    # kern.aioprocmax concurrency ceiling.
+    set(HAVE_POSIXAIO ON)
+    set(HAVE_DARWIN_AIO ON)
+  endif()
 endif()
 
 option(WITH_CRIMSON "Build Crimson components" OFF)

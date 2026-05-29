@@ -10,6 +10,12 @@ if(HAVE_LIBAIO OR HAVE_POSIXAIO)
     aio/aio.cc)
 endif()
 
+if(HAVE_DARWIN_AIO)
+  # idiomatic macOS async backend (libdispatch + kqueue); body is #if-guarded
+  list(APPEND libblk_srcs
+    kernel/dispatch_io.cc)
+endif()
+
 if(WITH_BLUESTORE_PMEM)
   list(APPEND libblk_srcs
     pmem/PMEMDevice.cc)

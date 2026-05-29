@@ -65,7 +65,14 @@ extern "C" {
 #ifdef __APPLE__
 typedef long long loff_t;
 typedef long long off64_t;
-#define O_DIRECT 00040000
+// macOS has no O_DIRECT open flag. Previously this header faked one
+// (00040000); XNU silently ignores unknown open(2) flags, so BlueStore
+// believed it had direct I/O while the kernel served buffered I/O --
+// a silent durability hazard. Define it to 0 so the O_RDWR | O_DIRECT
+// open() at KernelDevice.cc still compiles but requests nothing extra.
+// True uncached/synchronous behaviour is established after open via
+// ceph_set_nocache() (fcntl F_NOCACHE) in include/compat.h.
+#define O_DIRECT 0
 #endif
 
 // FreeBSD compatibility

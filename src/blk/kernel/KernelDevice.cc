@@ -27,6 +27,9 @@
 #include <boost/lockfree/queue.hpp>
 
 #include "KernelDevice.h"
+#if defined(HAVE_DARWIN_AIO)
+#include "dispatch_io.h"
+#endif
 #include "log/Log.h"
 #include "include/buffer_raw.h"
 #include "include/intarith.h"
@@ -86,6 +89,13 @@ KernelDevice::KernelDevice(CephContext* cct, aio_callback_t cb, void *cbpriv, ai
   bool use_ioring = cct->_conf.get_val<bool>("bdev_ioring");
   unsigned int iodepth = cct->_conf->bdev_aio_max_queue_depth;
 
+#if defined(HAVE_DARWIN_AIO)
+  if (cct->_conf.get_val<bool>("bdev_dispatchio") &&
+      darwin_gcd_queue_t::supported()) {
+    unsigned threads = cct->_conf.get_val<uint64_t>("bdev_dispatchio_max_threads");
+    io_queue = std::make_unique<darwin_gcd_queue_t>(iodepth, threads);
+  } else
+#endif
   if (use_ioring && ioring_queue_t::supported()) {
     bool use_ioring_hipri = cct->_conf.get_val<bool>("bdev_ioring_hipri");
     bool use_ioring_sqthread_poll = cct->_conf.get_val<bool>("bdev_ioring_sqthread_poll");
@@ -716,7 +726,9 @@ void KernelDevice::_aio_thread()
 		devname.c_str(),
 		path.c_str(),
 		r,
-#if defined(HAVE_POSIXAIO)
+#if defined(HAVE_DARWIN_AIO)
+                aio[i]->rw,
+#elif defined(HAVE_POSIXAIO)
                 aio[i]->aio.aiocb.aio_lio_opcode,
 #else
                 aio[i]->iocb.aio_lio_opcode,
@@ -1168,7 +1180,7 @@ int KernelDevice::aio_write(
 
   _aio_log_start(ioc, off, len);
 
-#ifdef HAVE_LIBAIO
+#if defined(HAVE_LIBAIO) || defined(HAVE_DARWIN_AIO)
   if (aio && dio && !buffered) {
     if (cct->_conf->bdev_inject_crash &&
 	rand() % cct->_conf->bdev_inject_crash == 0) {
@@ -1483,7 +1495,7 @@ int KernelDevice::aio_read(
 	  << dendl;
 
   int r = 0;
-#ifdef HAVE_LIBAIO
+#if defined(HAVE_LIBAIO) || defined(HAVE_DARWIN_AIO)
   if (aio && dio) {
     ceph_assert(is_valid_io(off, len));
     _aio_log_start(ioc, off, len);

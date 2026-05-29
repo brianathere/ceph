@@ -5890,6 +5890,24 @@ options:
   level: advanced
   desc: Enables Linux io_uring API Offload submission/completion to kernel thread
   default: false
+- name: bdev_dispatchio
+  type: bool
+  level: advanced
+  desc: Use the native macOS libdispatch+kqueue block I/O backend (Darwin only)
+  long_desc: On macOS this selects darwin_gcd_queue_t (blocking pwritev/preadv on a
+    private GCD concurrent queue, completions bridged via a kqueue EVFILT_USER
+    doorbell) in preference to POSIX AIO, which is unusable for a storage backend
+    due to the kern.aioprocmax per-process limit. Has no effect off Darwin.
+  default: true
+- name: bdev_dispatchio_max_threads
+  type: uint
+  level: advanced
+  desc: Max concurrently in-flight blocking IOs for the macOS libdispatch backend
+  long_desc: Each in-flight blocking pwritev/preadv occupies one libdispatch worker
+    thread; this bounds that count to avoid GCD thread explosion. submit_batch
+    applies backpressure (blocks) once this many IOs are in flight, regardless of
+    bdev_aio_max_queue_depth.
+  default: 64
 - name: bluestore_kv_sync_util_logging_s
   type: float
   level: advanced

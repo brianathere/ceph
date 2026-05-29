@@ -124,6 +124,35 @@ struct cpu_set_t;
 #define XATTR_CREATE 1
 #endif
 
+/*
+ * macOS has no posix_fadvise(2) and no POSIX_FADV_* constants. The only
+ * callers in the BlueStore block layer (KernelDevice) use it to disable
+ * read-ahead (POSIX_FADV_RANDOM) and to drop cached pages
+ * (POSIX_FADV_DONTNEED). Provide the constants and a thin shim so those
+ * call sites compile and behave sensibly: RANDOM maps to F_RDAHEAD off,
+ * everything else is a successful no-op (the F_NOCACHE direct path below
+ * already keeps the page cache out of the way).
+ */
+#ifndef POSIX_FADV_NORMAL
+#define POSIX_FADV_NORMAL     0
+#define POSIX_FADV_RANDOM     1
+#define POSIX_FADV_SEQUENTIAL 2
+#define POSIX_FADV_WILLNEED   3
+#define POSIX_FADV_DONTNEED   4
+#define POSIX_FADV_NOREUSE    5
+
+static inline int posix_fadvise(int fd, off_t offset, off_t len, int advice) {
+  (void)offset;
+  (void)len;
+  if (advice == POSIX_FADV_RANDOM) {
+    // Best-effort: turn read-ahead off for this descriptor. Ignore
+    // failure (e.g. raw /dev/rdiskN nodes) -- it is only a hint.
+    (void)fcntl(fd, F_RDAHEAD, 0);
+  }
+  return 0;
+}
+#endif
+
 #endif /* __APPLE__ */
 
 #ifndef HOST_NAME_MAX
@@ -164,6 +193,44 @@ struct cpu_set_t;
 #if defined(__FreeBSD__) || defined(__APPLE__)
 #define lseek64(fd, offset, whence) lseek(fd, offset, whence)
 #endif
+
+/*
+ * Centralized durability barrier. BlueStore's commit path needs the data
+ * to actually reach stable media, not merely the OS page cache.
+ *   Linux/FreeBSD: fdatasync(2) does this.
+ *   macOS:         fsync(2) only flushes to the drive; it does NOT force
+ *                  the drive's own write cache to media. fcntl(F_FULLFSYNC)
+ *                  is the only call that does, so it is mandatory here for
+ *                  data safety. Returns 0 on success, -1 with errno set,
+ *                  matching fdatasync(2) so existing error handling works.
+ */
+#ifndef _WIN32
+static inline int ceph_fdatasync(int fd) {
+#if defined(__APPLE__)
+  return fcntl(fd, F_FULLFSYNC);
+#elif defined(HAVE_FDATASYNC)
+  return fdatasync(fd);
+#else
+  return fsync(fd);
+#endif
+}
+
+/*
+ * Establish uncached ("direct"-equivalent) I/O on a descriptor after open.
+ * macOS has no O_DIRECT; F_NOCACHE makes reads/writes bypass the unified
+ * buffer cache, which is what BlueStore expects from its "direct" fds.
+ * No-op (success) on platforms that requested real O_DIRECT at open time.
+ * Returns 0 on success, -1 with errno set.
+ */
+static inline int ceph_set_nocache(int fd) {
+#if defined(__APPLE__)
+  return fcntl(fd, F_NOCACHE, 1);
+#else
+  (void)fd;
+  return 0;
+#endif
+}
+#endif /* !_WIN32 */
 
 #if defined(__sun) || defined(_AIX)
 #define LOG_AUTHPRIV    (10<<3)

@@ -93,6 +93,9 @@
 /* Defind if you have POSIX AIO */
 #cmakedefine HAVE_POSIXAIO
 
+/* Defined to use the idiomatic macOS libdispatch+kqueue block I/O backend */
+#cmakedefine HAVE_DARWIN_AIO
+
 /* Defined if OpenLDAP enabled */
 #cmakedefine HAVE_OPENLDAP
 

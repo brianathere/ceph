@@ -18,6 +18,13 @@
 #include "include/buffer.h"
 #include "include/types.h"
 
+#if defined(HAVE_DARWIN_AIO)
+// Direction tag for the libdispatch (darwin_gcd_queue_t) backend, which issues
+// blocking preadv/pwritev and therefore needs read-vs-write without the
+// libaio/posixaio per-iocb opcode field.
+enum darwin_aio_rw_t { DARWIN_AIO_READ = 0, DARWIN_AIO_WRITE = 1 };
+#endif
+
 struct aio_t {
 #if defined(HAVE_LIBAIO)
   struct iocb iocb{};  // must be first element; see shenanigans in aio_queue_t
@@ -28,6 +35,9 @@ struct aio_t {
     struct aiocb *aiocbp;
   } aio;
   int n_aiocb;
+#endif
+#if defined(HAVE_DARWIN_AIO)
+  int rw = DARWIN_AIO_READ;  ///< set by pwritev()/preadv() for the GCD backend
 #endif
   void *priv;
   int fd;
@@ -46,6 +56,8 @@ struct aio_t {
     length = len;
 #if defined(HAVE_LIBAIO)
     io_prep_pwritev(&iocb, fd, &iov[0], iov.size(), offset);
+#elif defined(HAVE_DARWIN_AIO)
+    rw = DARWIN_AIO_WRITE;  // darwin_gcd_queue_t uses fd/iov/offset/length directly
 #elif defined(HAVE_POSIXAIO)
     n_aiocb = iov.size();
     aio.aiocbp = (struct aiocb*)calloc(iov.size(), sizeof(struct aiocb));
@@ -65,6 +77,8 @@ struct aio_t {
     length = len;
 #if defined(HAVE_LIBAIO)
     io_prep_preadv(&iocb, fd, &iov[0], iov.size(), offset);
+#elif defined(HAVE_DARWIN_AIO)
+    rw = DARWIN_AIO_READ;  // darwin_gcd_queue_t uses fd/iov/offset/length directly
 #elif defined(HAVE_POSIXAIO)
     n_aiocb = iov.size();
     aio.aiocbp = (struct aiocb*)calloc(iov.size(), sizeof(struct aiocb));

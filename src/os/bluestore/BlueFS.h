@@ -701,7 +701,7 @@ private:
   int _fsync(FileWriter *h, bool force_dirty);
   uint64_t _flush_special(FileWriter *h);
 
-#ifdef HAVE_LIBAIO
+#if defined(HAVE_LIBAIO) || defined(HAVE_DARWIN_AIO)
   void _claim_completed_aios(FileWriter *h, std::list<aio_t> *ls);
   void _wait_for_aio(FileWriter *h);  // safe to call without a lock
 #endif
