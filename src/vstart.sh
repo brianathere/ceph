@@ -298,8 +298,10 @@ parse_block_devs() {
     local dev
     IFS=',' read -r -a block_devs <<< "$devs"
     for dev in "${block_devs[@]}"; do
-        if [ ! -b $dev ] || [ ! -w $dev ]; then
-            echo "All $opt_name must refer to writable block devices, check device: $dev"
+        # Accept a regular file too: BlueStore can use a file as its block
+        # device, and on macOS raw /dev/diskN nodes need root (no sudo here).
+        if { [ ! -b $dev ] && [ ! -f $dev ]; } || [ ! -w $dev ]; then
+            echo "All $opt_name must refer to writable block devices or files, check device: $dev"
             exit 1
         fi
     done
