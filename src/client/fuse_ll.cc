@@ -446,9 +446,11 @@ static void fuse_ll_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 // XATTRS
 
 static void fuse_ll_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
-			     const char *value, size_t size, 
+			     const char *value, size_t size,
 			     int flags
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(CEPH_FUSE_XATTR_POSITION)
+			     // macFUSE/osxfuse-only trailing position arg;
+			     // fuse-t and Linux libfuse use the 6-arg setxattr op.
 			     ,uint32_t pos
 #endif
   )
