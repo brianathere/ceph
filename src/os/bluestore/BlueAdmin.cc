@@ -5,7 +5,7 @@
 #include "Compression.h"
 #include "common/pretty_binary.h"
 #include "common/debug.h"
-#include <asm-generic/errno-base.h>
+#include <cerrno>  // was <asm-generic/errno-base.h> (Linux-only); errno macros only
 #include <vector>
 #include <limits>
 

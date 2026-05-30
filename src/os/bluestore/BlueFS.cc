@@ -1,7 +1,7 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
 // vim: ts=8 sw=2 sts=2 expandtab
 
-#include <asm-generic/errno-base.h>
+#include <cerrno>  // was <asm-generic/errno-base.h> (Linux-only); errno macros only
 #include <chrono>
 #include <fmt/compile.h>
 #include "boost/algorithm/string.hpp" 
