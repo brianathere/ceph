@@ -42,7 +42,11 @@ if(HAVE_INTEL_SSE4_1 AND HAVE_NASM_X64_AVX2 AND (NOT APPLE))
     ${CMAKE_SOURCE_DIR}/src/isa-l/igzip/igzip_set_long_icf_fg_04.asm
     ${CMAKE_SOURCE_DIR}/src/isa-l/igzip/igzip_set_long_icf_fg_06.asm
   )
-elseif(HAVE_ARMV8_SIMD)
+elseif(HAVE_ARMV8_SIMD AND NOT APPLE)
+  # The aarch64 isa-l accelerated path needs the isa-l submodule + GNU-as .S
+  # sources that don't assemble cleanly with Apple clang; fall through to the
+  # plain-zlib else() branch on macOS (the isa-l submodule is also not vendored
+  # in this build).
   set(zlib_asm_sources
     ${CMAKE_SOURCE_DIR}/src/isa-l/igzip/aarch64/igzip_inflate_multibinary_arm64.S
     ${CMAKE_SOURCE_DIR}/src/isa-l/igzip/aarch64/igzip_multibinary_arm64.S
