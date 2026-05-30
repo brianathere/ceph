@@ -19,7 +19,12 @@
 
 namespace ceph {
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
+// Linux exposes per-connection diagnostics via getsockopt(SOL_TCP, TCP_INFO)
+// into struct tcp_info. macOS has a different (struct tcp_connection_info /
+// TCP_CONNECTION_INFO) API with different fields; rather than port the whole
+// dump, provide the same no-op stub Windows uses. The admin-socket "tcp_info"
+// dump simply returns nothing on these platforms.
 struct tcp_info {};
 
 bool tcp_info(int fd, struct tcp_info& info) {

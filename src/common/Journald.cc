@@ -154,7 +154,14 @@ MESSAGE
       s->get_name(e.m_subsys),
       e.m_stamp.time_since_epoch().count().count,
       e.m_prio,
-      e.m_thread);
+#if defined(__APPLE__)
+      // pthread_t is an opaque pointer on Darwin; fmt refuses to format a
+      // non-void pointer, so convert it to an integer for the {:016x} field.
+      // (On Linux pthread_t is integral and formats directly.)
+      reinterpret_cast<std::uintptr_t>(e.m_thread))
+#else
+      e.m_thread)
+#endif;
 
     uint64_t msg_len = htole64(e.size());
     meta_buf.resize(meta_buf.size() + sizeof(msg_len));
@@ -254,7 +261,15 @@ JournaldClient::JournaldClient() :
     sizeof(sockaddr),            // msg_namelen
   })
 {
+#if defined(SOCK_CLOEXEC)
   fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+#else
+  // macOS has no SOCK_CLOEXEC; set FD_CLOEXEC after creation.
+  fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+  if (fd >= 0) {
+    fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+  }
+#endif
   ceph_assertf(fd > 0, "socket creation failed: %s", strerror(errno));
 
   int sendbuf = 2 * 1024 * 1024;

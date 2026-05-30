@@ -155,6 +155,13 @@ static inline int sched_getaffinity(pid_t, size_t, cpu_set_t*) { errno = ENOSYS;
 #define XATTR_CREATE 1
 #endif
 
+// macOS has no /proc; PROCPREFIX is empty so the few "/proc/..." readers in
+// common/util.cc compile and degrade gracefully (their ifstreams just fail to
+// open, which those call sites already handle).
+#ifndef PROCPREFIX
+#define PROCPREFIX ""
+#endif
+
 /*
  * macOS has no posix_fadvise(2) and no POSIX_FADV_* constants. The only
  * callers in the BlueStore block layer (KernelDevice) use it to disable
