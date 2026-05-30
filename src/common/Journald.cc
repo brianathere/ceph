@@ -142,6 +142,16 @@ class EntryEncoder : public EntryEncoderBase {
   void encode(const Entry& e, const SubsystemMap *s)
   {
     meta_buf.clear();
+    // pthread_t is an opaque pointer on Darwin (fmt refuses to format a
+    // non-void pointer); it is integral on Linux. Normalize to an unsigned
+    // integer for the {:016x} THREAD field on both platforms.
+#if defined(__APPLE__)
+    const uint64_t ceph_thread_id =
+      reinterpret_cast<uintptr_t>(
+        reinterpret_cast<const void*>(e.m_thread));
+#else
+    const uint64_t ceph_thread_id = e.m_thread;
+#endif
     fmt::format_to(std::back_inserter(meta_buf),
       R"(PRIORITY={:d}
 CEPH_SUBSYS={}
@@ -154,14 +164,7 @@ MESSAGE
       s->get_name(e.m_subsys),
       e.m_stamp.time_since_epoch().count().count,
       e.m_prio,
-#if defined(__APPLE__)
-      // pthread_t is an opaque pointer on Darwin; fmt refuses to format a
-      // non-void pointer, so convert it to an integer for the {:016x} field.
-      // (On Linux pthread_t is integral and formats directly.)
-      reinterpret_cast<std::uintptr_t>(e.m_thread))
-#else
-      e.m_thread)
-#endif;
+      ceph_thread_id);
 
     uint64_t msg_len = htole64(e.size());
     meta_buf.resize(meta_buf.size() + sizeof(msg_len));
