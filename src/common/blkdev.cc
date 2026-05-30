@@ -841,6 +841,20 @@ std::string get_device_path(const std::string& devname,
   return std::string();
 }
 
+// macOS has no smartctl-based device metrics; stubs so callers (e.g. the mon's
+// do_admin_command -> block_device_get_metrics) link.
+int block_device_run_smartctl(const char *device, int timeout,
+                              std::string *result)
+{
+  return -EOPNOTSUPP;
+}
+
+int block_device_get_metrics(const std::string& devname, int timeout,
+                             json_spirit::mValue *result)
+{
+  return -EOPNOTSUPP;
+}
+
 #elif defined(__FreeBSD__)
 
 const char *BlkDev::sysfsdir() const {
