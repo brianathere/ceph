@@ -3,7 +3,15 @@
 
 #include "Journald.h"
 
+#if defined(__APPLE__)
+#include <libkern/OSByteOrder.h>
+// macOS has no <endian.h>; provide the htole64 helper used below.
+#ifndef htole64
+#define htole64(x) OSSwapHostToLittleInt64(x)
+#endif
+#else
 #include <endian.h>
+#endif
 #include <fcntl.h>
 #include <iterator>
 #include <memory>
@@ -14,6 +22,12 @@
 #include <sys/un.h>
 #include <syslog.h>
 #include <unistd.h>
+
+// MSG_NOSIGNAL is a Linux send(2) flag; it does not exist on macOS, where
+// SO_NOSIGPIPE on the socket is used instead (see JournaldClient ctor).
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 
 #include <iostream> // for std::cerr
 
@@ -29,10 +43,21 @@
 namespace ceph::logging {
 
 namespace {
+#if defined(__APPLE__)
+// macOS's struct sockaddr_un has a leading sun_len field before sun_family,
+// so the positional initializer used on Linux would misassign members.
+// Use designated initializers (also set sun_len) to stay correct.
+const struct sockaddr_un sockaddr = {
+  .sun_len = sizeof(struct sockaddr_un),
+  .sun_family = AF_UNIX,
+  .sun_path = "/run/systemd/journal/socket",
+};
+#else
 const struct sockaddr_un sockaddr = {
   AF_UNIX,
   "/run/systemd/journal/socket",
 };
+#endif
 
 ssize_t sendmsg_fd(int transport_fd, int fd)
 {
@@ -79,7 +104,11 @@ class EntryEncoderBase {
      {}, {}, {}, { (char *)"\n", 1 },
     }
   {
+#if defined(__APPLE__)
+    std::string id = getprogname();
+#else
     std::string id = program_invocation_short_name;
+#endif
     for (auto& c : id) {
       if (c == '\n')
         c = '_';
@@ -182,6 +211,8 @@ constexpr const char *mem_file_dir = "/dev/shm";
 
 void JournaldClient::detect_mem_file_mode()
 {
+#if !defined(__APPLE__)
+  // memfd_create()/MFD_* and O_TMPFILE are Linux-only.
   int memfd = memfd_create("ceph-journald", MFD_ALLOW_SEALING | MFD_CLOEXEC);
   if (memfd >= 0) {
     mem_file_mode = MemFileMode::MEMFD_CREATE;
@@ -194,16 +225,20 @@ void JournaldClient::detect_mem_file_mode()
     close(memfd);
     return;
   }
+#endif
   mem_file_mode = MemFileMode::OPEN_UNLINK;
 }
 
 int JournaldClient::open_mem_file()
 {
   switch (mem_file_mode) {
+#if !defined(__APPLE__)
+  // memfd_create()/MFD_* and O_TMPFILE are Linux-only.
   case MemFileMode::MEMFD_CREATE:
     return memfd_create("ceph-journald", MFD_ALLOW_SEALING | MFD_CLOEXEC);
   case MemFileMode::OPEN_TMPFILE:
     return open(mem_file_dir, O_TMPFILE | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR);
+#endif
   case MemFileMode::OPEN_UNLINK:
     char mem_file_template[] = "/dev/shm/ceph-journald-XXXXXX";
     int fd = mkostemp(mem_file_template, O_CLOEXEC);
@@ -224,6 +259,12 @@ JournaldClient::JournaldClient() :
 
   int sendbuf = 2 * 1024 * 1024;
   setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sendbuf, sizeof(sendbuf));
+
+#if defined(__APPLE__)
+  // macOS lacks MSG_NOSIGNAL; suppress SIGPIPE at the socket level instead.
+  int on = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#endif
 
   detect_mem_file_mode();
 }
@@ -262,6 +303,9 @@ int JournaldClient::send()
     goto err_close_buffer_fd;
   }
 
+#if !defined(__APPLE__)
+  // F_ADD_SEALS / F_SEAL_* are Linux-only; this branch is also only ever
+  // reached when MEMFD_CREATE was selected, which never happens on macOS.
   if (mem_file_mode == MemFileMode::MEMFD_CREATE) {
     ret = fcntl(buffer_fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_SEAL);
     if (ret) {
@@ -269,6 +313,7 @@ int JournaldClient::send()
       goto err_close_buffer_fd;
     }
   }
+#endif
   
   ret = sendmsg_fd(fd, buffer_fd);
   if (ret < 0) {

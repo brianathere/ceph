@@ -67,7 +67,38 @@ int sched_setaffinity(pid_t pid, size_t cpusetsize,
 #endif /* __FreeBSD__ */
 
 #if defined(__APPLE__)
-struct cpu_set_t;
+// macOS has no sched-affinity / NUMA API and <sched.h> defines none of the
+// cpu_set_t surface. Provide the glibc dynamic-cpuset API that common/numa.{h,cc}
+// reference so they compile; affinity is a best-effort no-op (Darwin schedules
+// threads itself). Defined as a complete type so by-value/sizeof uses work.
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <sys/types.h>
+typedef struct { uint64_t __bits[16]; } cpu_set_t;   // up to 1024 logical CPUs
+#ifndef CPU_SETSIZE
+#define CPU_SETSIZE 1024
+#endif
+#define CPU_ALLOC_SIZE(n) (sizeof(cpu_set_t))
+#define CPU_ALLOC(n) (static_cast<cpu_set_t*>(std::calloc(1, sizeof(cpu_set_t))))
+#define CPU_FREE(p) std::free(p)
+#define CPU_ZERO_S(sz, set) std::memset((set), 0, (sz))
+#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t), (set))
+#define CPU_SET_S(cpu, sz, set) ((set)->__bits[(cpu) >> 6] |= (static_cast<uint64_t>(1) << ((cpu) & 63)))
+#define CPU_SET(cpu, set) CPU_SET_S((cpu), sizeof(cpu_set_t), (set))
+#define CPU_ISSET_S(cpu, sz, set) ((((set)->__bits[(cpu) >> 6]) >> ((cpu) & 63)) & 1u)
+#define CPU_ISSET(cpu, set) CPU_ISSET_S((cpu), sizeof(cpu_set_t), (set))
+static inline int ceph_cpu_count_s(size_t sz, const cpu_set_t* set) {
+  int n = 0;
+  for (size_t i = 0; i < sz / sizeof(uint64_t) && i < 16; ++i)
+    n += __builtin_popcountll(set->__bits[i]);
+  return n;
+}
+#define CPU_COUNT_S(sz, set) ceph_cpu_count_s((sz), (set))
+#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t), (set))
+static inline int sched_setaffinity(pid_t, size_t, const cpu_set_t*) { return 0; }
+static inline int sched_getaffinity(pid_t, size_t, cpu_set_t*) { errno = ENOSYS; return -1; }
 #endif
 
 #if defined(__APPLE__) || defined(__FreeBSD__)

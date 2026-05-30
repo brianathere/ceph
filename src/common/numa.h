@@ -3,8 +3,8 @@
 
 #pragma once
 
-#ifdef _WIN32
-#include "include/compat.h" // for cpu_set_t
+#if defined(_WIN32) || defined(__APPLE__)
+#include "include/compat.h" // for cpu_set_t (neither platform's <sched.h> has it)
 #endif
 
 #include <sched.h>
