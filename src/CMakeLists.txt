@@ -1011,7 +1011,7 @@ if(WITH_FUSE)
     client/fuse_ll.cc)
   add_executable(ceph-fuse ${ceph_fuse_srcs})
   target_link_libraries(ceph-fuse FUSE::FUSE
-    ${GSSAPI_LIBRARIES} client ceph-common global-static ${EXTRALIBS})
+    ${GSSAPI_LIBRARIES} client ceph-common global-static Boost::locale ${EXTRALIBS})
   set_target_properties(ceph-fuse PROPERTIES
     POSITION_INDEPENDENT_CODE ${EXE_LINKER_USE_PIE})
   install(TARGETS ceph-fuse DESTINATION bin)
