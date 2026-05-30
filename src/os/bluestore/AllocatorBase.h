@@ -209,8 +209,8 @@ protected:
         return false;
       }
       bool ret = false;
-      ceph_assert(p2aligned(offset, myTraits.base));
-      ceph_assert(p2aligned(len, myTraits.base));
+      ceph_assert(p2aligned(offset, static_cast<uint64_t>(myTraits.base)));
+      ceph_assert(p2aligned(len, static_cast<uint64_t>(myTraits.base)));
       auto idx = myTraits._get_bucket(len);
       if (idx < buckets.size())
         ret = buckets[idx].try_put(offset);
@@ -223,7 +223,7 @@ protected:
       }
       bool ret = false;
       ceph_assert(offset);
-      ceph_assert(p2aligned(len, myTraits.base));
+      ceph_assert(p2aligned(len, static_cast<uint64_t>(myTraits.base)));
       size_t idx = len >> myTraits.base_bits;
       if (idx < buckets.size()) {
         ret = buckets[idx].try_get(*offset);
