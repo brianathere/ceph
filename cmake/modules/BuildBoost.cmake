@@ -140,7 +140,14 @@ function(do_build_boost root_dir version)
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM")
     list(APPEND b2 abi=aapcs)
     list(APPEND b2 architecture=arm)
-    list(APPEND b2 binary-format=elf)
+    if(APPLE)
+      # Apple Silicon uses Mach-O, not ELF: Boost.Context must build its
+      # *_arm64_aapcs_macho_gas.S sources, else clang's Mach-O assembler
+      # rejects the ELF .S variant ("unknown directive").
+      list(APPEND b2 binary-format=mach-o)
+    else()
+      list(APPEND b2 binary-format=elf)
+    endif()
   endif()
   if(WITH_BOOST_VALGRIND)
     list(APPEND b2 valgrind=on)
