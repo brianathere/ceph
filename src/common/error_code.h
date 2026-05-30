@@ -23,6 +23,7 @@
 #    include <format>
 #  endif
 #endif
+#include <exception>  // std::exception_ptr — libc++ does not pull it in transitively
 #include <functional>
 #include <new>
 #include <optional>
