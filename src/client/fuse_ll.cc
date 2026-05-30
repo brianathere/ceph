@@ -497,7 +497,8 @@ static void fuse_ll_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 
 static void fuse_ll_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
 			     size_t size
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(CEPH_FUSE_XATTR_POSITION)
+			     // macFUSE/osxfuse-only trailing position arg.
 			     ,uint32_t position
 #endif
   )
