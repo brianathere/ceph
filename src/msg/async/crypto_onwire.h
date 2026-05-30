@@ -20,6 +20,8 @@
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
+#include <string>       // std::string — libc++ needs this explicitly
+#include <string_view>  // std::string_view — likewise
 
 #include "include/buffer_fwd.h"
 #include "include/common_fwd.h"
