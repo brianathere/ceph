@@ -1,17 +1,21 @@
-## extended block device plugins
-
-set(extblkdev_plugin_dir ${CEPH_INSTALL_PKGLIBDIR}/extblkdev)
-
-add_subdirectory(vdo)
-add_subdirectory(fcm)
-
-add_library(extblkdev STATIC ExtBlkDevPlugin.cc)
-
-if(LINUX)
-  find_package(cap REQUIRED)
-  target_link_libraries(extblkdev cap)
+# The fcm plugin uses libblkid (Linux-only; HAVE_BLKID is OFF on macOS). Gate it
+# out on Apple so the OSD links without blkid.
+if(NOT APPLE)
+  add_subdirectory(fcm)
 endif()
 
-add_custom_target(extblkdev_plugins DEPENDS
-    ceph_ebd_vdo
-    ceph_ebd_fcm)
+set(SOURCES
+   ExtBlkDevInterface.cc
+   ExtBlkDevPlugin.cc)
+
+add_library(extblkdev STATIC ${SOURCES})
+target_link_libraries(extblkdev legacy-option-headers)
+add_dependencies(extblkdev legacy-option-headers)
+
+if(WITH_SYSTEM_LIBVERBS)
+endif()
+
+add_custom_target(extblkdev_plugins)
+if(NOT APPLE)
+  add_dependencies(extblkdev_plugins ceph_ebd_fcm)
+endif()
