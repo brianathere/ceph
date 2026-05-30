@@ -1,6 +1,14 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:nil -*-
 // vim: ts=8 sw=2 sts=2 expandtab
 
+// macOS declares preadv()/pwritev() in <sys/uio.h> only when the Darwin
+// extensions are visible; Ceph's strict compile mode (_POSIX_C_SOURCE) hides
+// them. This MUST precede ALL includes — dispatch_io.h transitively pulls
+// <sys/uio.h> — so it is the very first thing in the file.
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
+
 #include "dispatch_io.h"
 
 #if defined(HAVE_DARWIN_AIO)
@@ -10,13 +18,6 @@
 #include <mutex>
 #include <vector>
 #include <boost/container/small_vector.hpp>  // explicit: used in the worker block
-
-// macOS declares preadv()/pwritev() in <sys/uio.h> only when the Darwin
-// extensions are visible; Ceph's strict compile mode (_POSIX_C_SOURCE) hides
-// them. Request the Darwin surface before including the header.
-#ifndef _DARWIN_C_SOURCE
-#define _DARWIN_C_SOURCE
-#endif
 
 #include <dispatch/dispatch.h>
 #include <sys/event.h>
