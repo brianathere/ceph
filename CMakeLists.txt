@@ -36,6 +36,15 @@ if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   set(FREEBSD ON)
   FIND_PACKAGE(Threads)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  set(DARWIN ON)
+  FIND_PACKAGE(Threads)
+  # Ceph's compressor/erasure-code/etc. plugins are dlopen'd modules whose
+  # dependency symbols (snappy, lz4, ceph-common, ...) resolve at load time
+  # against the host daemon. Linux ld permits undefined symbols in shared
+  # objects; macOS ld rejects them unless told to defer resolution.
+  string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-undefined,dynamic_lookup")
+  string(APPEND CMAKE_MODULE_LINKER_FLAGS " -Wl,-undefined,dynamic_lookup")
 endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 
 if(WIN32)
