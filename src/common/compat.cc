@@ -245,7 +245,17 @@ char *ceph_strerror_r(int errnum, char *buf, size_t buflen)
 }
 
 int ceph_memzero_s(void *dest, size_t destsz, size_t count) {
-#ifdef HAVE_MEMSET_S
+#if defined(__APPLE__)
+    // macOS: memset_s needs __STDC_WANT_LIB_EXT1__ before <string.h>, and
+    // explicit_bzero's declaration is gated by __DARWIN_C_LEVEL; neither is
+    // guaranteed in this TU. A volatile-pointer write zeroes the buffer and
+    // cannot be optimized away, which is exactly the secure-erase guarantee.
+    (void)destsz;
+    volatile unsigned char *p = reinterpret_cast<volatile unsigned char*>(dest);
+    while (count--) {
+      *p++ = 0;
+    }
+#elif defined(HAVE_MEMSET_S)
     return memset_s(dest, destsz, 0, count);
 #elif defined(_WIN32)
     SecureZeroMemory(dest, count);

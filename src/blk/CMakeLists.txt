@@ -14,6 +14,10 @@ if(HAVE_DARWIN_AIO)
   # idiomatic macOS async backend (libdispatch + kqueue); body is #if-guarded
   list(APPEND libblk_srcs
     kernel/dispatch_io.cc)
+  # dispatch_io.cc uses Clang blocks (^{ }) for GCD dispatch_async; the blocks
+  # runtime lives in libSystem on macOS, so only the compile flag is needed.
+  set_source_files_properties(kernel/dispatch_io.cc
+    PROPERTIES COMPILE_OPTIONS "-fblocks")
 endif()
 
 if(WITH_BLUESTORE_PMEM)

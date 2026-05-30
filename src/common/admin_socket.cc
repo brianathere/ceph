@@ -21,7 +21,12 @@
 
 #ifndef WIN32
 #include <time.h>
-#else
+#endif
+#if defined(WIN32) || defined(__APPLE__)
+// Neither Windows nor macOS provides POSIX per-process timers; timer_t is not
+// declared. The RaiseHook::Killer that uses it is compiled out on these
+// platforms (see the WIN32/__APPLE__ guards below), but the member type still
+// needs to name a type.
 typedef void* timer_t;
 #endif
 
@@ -839,7 +844,7 @@ class RaiseHook: public AdminSocketHook {
     }
 
     void release() noexcept {
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__APPLE__)
       if (timer_id) {
         timer_delete(*timer_id);
         timer_id = std::nullopt;
@@ -879,7 +884,7 @@ class RaiseHook: public AdminSocketHook {
 
     bool cancel()
     {
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__APPLE__)
       struct itimerspec zero = {};
       struct itimerspec prev = {};
       if (timer_settime(*timer_id, 0, &zero, &prev) < 0) {
@@ -893,7 +898,7 @@ class RaiseHook: public AdminSocketHook {
 
     static std::optional<Killer> arm(CephContext* m_cct, int signal_to_send, double delay)
     {
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__APPLE__)
       struct sigevent sev = {};
       sev.sigev_notify = SIGEV_SIGNAL;
       sev.sigev_signo = signal_to_send;
