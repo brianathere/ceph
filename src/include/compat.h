@@ -66,11 +66,13 @@ int sched_setaffinity(pid_t pid, size_t cpusetsize,
 
 #endif /* __FreeBSD__ */
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && defined(__cplusplus)
 // macOS has no sched-affinity / NUMA API and <sched.h> defines none of the
 // cpu_set_t surface. Provide the glibc dynamic-cpuset API that common/numa.{h,cc}
 // reference so they compile; affinity is a best-effort no-op (Darwin schedules
 // threads itself). Defined as a complete type so by-value/sizeof uses work.
+// Guarded on __cplusplus: only C++ TUs (numa) use it, and this block uses C++
+// headers/casts, so C TUs that include compat.h (e.g. safe_io.c) must skip it.
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
