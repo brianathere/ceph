@@ -33,7 +33,14 @@
  * update since libfuse 3.2 to 3.8. We need to fetch the MINOR
  * number from pkgconfig file.
  */
-#ifdef FUSE_VERSION
+// The redefine below recomputes FUSE_VERSION from the MAJOR/MINOR that CMake's
+// pkg_check_modules(FUSE) wrote into acconfig.h, working around an old libfuse
+// bug where fuse_common.h's FUSE_VERSION lagged the real MINOR. That requires
+// CEPH_FUSE_{MAJOR,MINOR}_VERSION to be non-empty. When FUSE was located
+// without pkg-config (e.g. the macOS/fuse-t build that passes FUSE_INCLUDE_DIR
+// directly), those macros are empty and FUSE_MAKE_VERSION(,) fails to compile;
+// in that case trust the FUSE_VERSION the header already defines.
+#if defined(FUSE_VERSION) && (CEPH_FUSE_MAJOR_VERSION + 0) != 0
 #undef FUSE_VERSION
 #define FUSE_VERSION FUSE_MAKE_VERSION(CEPH_FUSE_MAJOR_VERSION, CEPH_FUSE_MINOR_VERSION)
 #endif
