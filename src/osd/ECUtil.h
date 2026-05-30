@@ -99,7 +99,7 @@ class slice_iterator {
       uint64_t off = 0;
       char *c_str = bp.c_str();
       // Skip any non-aligned chunk.
-      uint64_t analysed = p2roundup((uintptr_t)c_str, EC_ALIGN_SIZE) - (uintptr_t)c_str;
+      uint64_t analysed = p2roundup((uintptr_t)c_str, (uintptr_t)EC_ALIGN_SIZE) - (uintptr_t)c_str;
 
       while (off + analysed <= bp_len) {
         bool new_is_zeros;
