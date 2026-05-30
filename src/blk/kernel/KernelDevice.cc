@@ -1320,6 +1320,11 @@ struct ExplicitHugePagePool {
         // behind MAP_ALIGNED_SUPER.
         // See: https://lists.freebsd.org/pipermail/freebsd-questions/2014-August/260578.html
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_PREFAULT_READ | MAP_ALIGNED_SUPER,
+#elif defined(__APPLE__)
+        // macOS has neither MAP_POPULATE nor MAP_HUGETLB; use a plain anonymous
+        // private mapping (pages fault in on touch). The huge-page preallocation
+        // optimization is unavailable here (off by default).
+        MAP_PRIVATE | MAP_ANON,
 #else
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_HUGETLB,
 #endif // __FreeBSD__
