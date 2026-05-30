@@ -153,6 +153,9 @@ static inline int sched_getaffinity(pid_t, size_t, cpu_set_t*) { errno = ENOSYS;
 #ifndef EKEYREJECTED
 #define EKEYREJECTED 129
 #endif
+#ifndef ENOKEY
+#define ENOKEY 126   // Linux "required key not available"; absent on macOS
+#endif
 #ifndef XATTR_CREATE
 #define XATTR_CREATE 1
 #endif
