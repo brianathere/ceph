@@ -1295,7 +1295,11 @@ EOF
             fi
             mkdir -p $CEPH_DEV_DIR/osd$osd
             if [ -n "${block_devs[$osd]}" ]; then
-                dd if=/dev/zero of=${block_devs[$osd]} bs=1M count=1
+                # conv=notrunc: on macOS/BSD, dd to a regular file truncates it
+                # to the written length; without this a pre-sized file-backed
+                # bluestore block dev would shrink to 1 MiB and BlueFS::mkfs
+                # would abort (bluefs _allocate allocation failed).
+                dd if=/dev/zero of=${block_devs[$osd]} bs=1M count=1 conv=notrunc
                 ln -s ${block_devs[$osd]} $CEPH_DEV_DIR/osd$osd/block
             fi
             if [ -n "${bluestore_db_devs[$osd]}" ]; then
