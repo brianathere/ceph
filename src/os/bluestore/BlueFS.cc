@@ -4099,7 +4099,18 @@ void BlueFS::append_try_flush(FileWriter *h, const char* buf, size_t len)/*_WF_L
       h->envelope_head_filler = h->append_hole(File::envelope_t::head_size());
       uint32_t pos1 = h->get_effective_write_pos() - File::envelope_t::head_size();
       uint32_t pos2 = reinterpret_cast<uintptr_t>(h->envelope_head_filler.c_str());
-      ceph_assert(p2aligned(pos1 ^ pos2, CEPH_PAGE_SIZE));
+      // The envelope header's file offset (pos1) and its in-memory buffer
+      // address (pos2) must share the same phase so a block-aligned region of
+      // the file maps to a block-aligned region of the buffer (lets the direct
+      // I/O path write whole blocks without a bounce buffer). The relevant
+      // granularity is the device BLOCK size, not the CPU page size. On Linux
+      // these coincide (4K page == 4K block) so CEPH_PAGE_SIZE worked, but on
+      // Apple Silicon the CPU page is 16K while the device block stays 4K;
+      // using CEPH_PAGE_SIZE here over-constrains the check and aborts every
+      // OSD (the buffer is 16K-page-aligned but file offsets are only 4K/block
+      // aligned). super_block_size is the device block size and is what the
+      // sibling position check in FileWriter already uses.
+      ceph_assert(p2aligned(pos1 ^ pos2, h->get_super_block_size()));
     }
     size_t max_size = 1ull << 30; // cap to 1GB
     while (len > 0) {

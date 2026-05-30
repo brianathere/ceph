@@ -412,6 +412,9 @@ public:
     uint64_t get_pos() {
       return pos;
     }
+    uint32_t get_super_block_size() const {
+      return super_block_size;
+    }
     void set_pos(uint64_t new_pos) {
       ceph_assert(buffer.length() == 0);
       ceph_assert(p2aligned<uint32_t>(new_pos, super_block_size));
