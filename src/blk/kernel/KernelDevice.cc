@@ -13,6 +13,14 @@
  *
  */
 
+// macOS hides preadv()/pwritev() in <sys/uio.h> (pulled in via the headers
+// below) unless the Darwin extensions are requested; Ceph's strict compile
+// mode (_POSIX_C_SOURCE) otherwise leaves them undeclared. Also surfaces the
+// MAP_* mmap flags we reference. Must precede the system includes.
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
+
 #include <limits>
 #include <unistd.h>
 #include <stdlib.h>
@@ -21,6 +29,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/mman.h>
+#include <sys/uio.h>   // preadv / pwritev
 #include <chrono>
 
 #include <boost/container/flat_map.hpp>
@@ -542,7 +551,7 @@ int KernelDevice::flush()
     _exit(1);
   }
   utime_t start = ceph_clock_now();
-  int r = ::fdatasync(fd_directs[WRITE_LIFE_NOT_SET]);
+  int r = ceph_fdatasync(fd_directs[WRITE_LIFE_NOT_SET]);
   utime_t end = ceph_clock_now();
   utime_t dur = end - start;
   if (r < 0) {
@@ -676,6 +685,10 @@ static bool is_expected_ioerr(const int r)
 	  r == -EREMCHG || r == -EBADE
 #elif defined(__FreeBSD__)
 	  r == - BSM_ERRNO_EREMCHG || r == -BSM_ERRNO_EBADE
+#else
+	  // macOS: no EREMCHG/EBADE; the leading clauses already cover the
+	  // expected I/O errors. A literal false keeps the trailing || valid.
+	  false
 #endif
 	  );
 }

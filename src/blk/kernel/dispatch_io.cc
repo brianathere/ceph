@@ -11,6 +11,13 @@
 #include <vector>
 #include <boost/container/small_vector.hpp>  // explicit: used in the worker block
 
+// macOS declares preadv()/pwritev() in <sys/uio.h> only when the Darwin
+// extensions are visible; Ceph's strict compile mode (_POSIX_C_SOURCE) hides
+// them. Request the Darwin surface before including the header.
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+
 #include <dispatch/dispatch.h>
 #include <sys/event.h>
 #include <sys/uio.h>        // preadv / pwritev / struct iovec
