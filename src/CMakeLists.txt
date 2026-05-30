@@ -1010,8 +1010,15 @@ if(WITH_FUSE)
     ceph_fuse.cc
     client/fuse_ll.cc)
   add_executable(ceph-fuse ${ceph_fuse_srcs})
+  # Boost::locale (used by Client.cc via boost::locale::conv) needs iconv. On
+  # Linux iconv lives in glibc; on macOS it is a separate system library
+  # (/usr/lib/libiconv.dylib) that must be linked explicitly.
+  if(APPLE)
+    set(CEPH_FUSE_ICONV iconv)
+  endif()
   target_link_libraries(ceph-fuse FUSE::FUSE
-    ${GSSAPI_LIBRARIES} client ceph-common global-static Boost::locale ${EXTRALIBS})
+    ${GSSAPI_LIBRARIES} client ceph-common global-static Boost::locale
+    ${CEPH_FUSE_ICONV} ${EXTRALIBS})
   set_target_properties(ceph-fuse PROPERTIES
     POSITION_INDEPENDENT_CODE ${EXE_LINKER_USE_PIE})
   install(TARGETS ceph-fuse DESTINATION bin)
