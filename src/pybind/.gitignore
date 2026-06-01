@@ -1,0 +1,4 @@
+# Cython preprocessor output generated into the source tree by the build
+# (the tracked sources are cephfs.pyx / rados.pyx); these are build artifacts.
+cephfs/cephfs_processed.pyx
+rados/rados_processed.pyx
