@@ -68,6 +68,23 @@ int ClassHandler::open_all_classes()
       strncpy(cname, pde->d_name + sizeof(CLS_PREFIX) - 1, sizeof(cname) -1);
       cname[strlen(cname) - (sizeof(CLS_SUFFIX) - 1)] = '\0';
       ldout(cct, 10) << __func__ << " found " << cname << dendl;
+#ifdef __APPLE__
+      // On macOS, versioned dynamic libraries are named libcls_<name>.<ver>.dylib
+      // (e.g. libcls_journal.1.dylib, libcls_journal.1.0.0.dylib) and ALL end in
+      // ".dylib", so they pass the suffix test above and yield a bogus class name
+      // like "journal.1". dlopen'ing them succeeds, but the plugin self-registers
+      // under its real name ("journal" via CLS_NAME), so register_class() finds no
+      // matching entry, returns a NULL handle, and the plugin then dereferences it
+      // -> crash. On Linux versioned libs are libcls_<name>.so.<ver>, which do not
+      // end in ".so", so they are skipped naturally. Class names never contain a
+      // '.', so skip any derived name that does (the canonical unversioned
+      // libcls_<name>.dylib is loaded instead).
+      if (strchr(cname, '.')) {
+        ldout(cct, 10) << __func__ << " skipping versioned library "
+                       << pde->d_name << dendl;
+        continue;
+      }
+#endif
       ClassData *cls;
       // skip classes that aren't in 'osd class load list'
       r = open_class(cname, &cls);
