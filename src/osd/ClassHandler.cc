@@ -11,6 +11,7 @@
 #include <dirent.h>
 
 #include <map>
+#include <set>
 
 #if defined(__FreeBSD__)
 #include <sys/param.h>
@@ -58,6 +59,13 @@ int ClassHandler::open_all_classes()
 
   struct dirent *pde = nullptr;
   int r = 0;
+#ifdef __APPLE__
+  // Track base names already warned about (missing canonical symlink) so a
+  // deployment that ships several versioned dylibs for the same class
+  // (libcls_journal.1.dylib + libcls_journal.1.0.0.dylib) warns once, not once
+  // per file.
+  std::set<std::string> warned_missing_canonical;
+#endif
   while ((pde = ::readdir(dir))) {
     if (pde->d_name[0] == '.')
       continue;
@@ -86,15 +94,25 @@ int ClassHandler::open_all_classes()
         // skipping silently would register zero classes and every RADOS class
         // op would fail at runtime with no startup error -- so warn loudly.
         std::string base(cname, dot - cname);
+        if (base.empty()) {
+          // Malformed name with no class component (e.g. "libcls_.1.dylib");
+          // nothing to load, skip without a misleading empty-class warning.
+          ldout(cct, 10) << __func__ << " skipping malformed versioned library "
+                         << pde->d_name << dendl;
+          continue;
+        }
         std::string canonical = cct->_conf->osd_class_dir + "/" +
                                 CLS_PREFIX + base + CLS_SUFFIX;
         struct stat st;
         if (::stat(canonical.c_str(), &st) != 0) {
-          ldout(cct, 0) << __func__ << " WARNING: found versioned class library "
-                        << pde->d_name << " but canonical " << canonical
-                        << " is missing; class '" << base << "' will not be "
-                        << "loaded -- preserve symlinks when staging cls libs"
-                        << dendl;
+          // Warn once per base name (not once per versioned file).
+          if (warned_missing_canonical.insert(base).second) {
+            ldout(cct, 0) << __func__ << " WARNING: found versioned class library "
+                          << pde->d_name << " but canonical " << canonical
+                          << " is missing; class '" << base << "' will not be "
+                          << "loaded -- preserve symlinks when staging cls libs"
+                          << dendl;
+          }
         } else {
           ldout(cct, 10) << __func__ << " skipping versioned library "
                          << pde->d_name << dendl;

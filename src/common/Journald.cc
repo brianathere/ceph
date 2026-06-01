@@ -256,13 +256,18 @@ int JournaldClient::open_mem_file()
     // /tmp). mkostemp(3) is a glibc extension that is undeclared on macOS, so
     // use POSIX mkstemp(3) and set FD_CLOEXEC explicitly (mkstemp does not).
     const char *tmpdir = std::getenv("TMPDIR");
-    if (!tmpdir || !*tmpdir)
-      tmpdir = "/tmp";
-    std::string tmpl = std::string(tmpdir) + "/ceph-journald-XXXXXX";
+    std::string dir = (tmpdir && *tmpdir) ? tmpdir : "/tmp";
+    while (dir.size() > 1 && dir.back() == '/')  // $TMPDIR often ends in '/'
+      dir.pop_back();                            // avoid a doubled slash in path
+    std::string tmpl = dir + "/ceph-journald-XXXXXX";
     int fd = mkstemp(tmpl.data());
-    if (fd >= 0)
+    if (fd >= 0) {
       fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
-    unlink(tmpl.c_str());
+      // Only unlink the file we actually created; on mkstemp failure the
+      // template is untouched, so skipping unlink keeps the real mkstemp errno
+      // intact for the caller's diagnostic instead of clobbering it with ENOENT.
+      unlink(tmpl.c_str());
+    }
     return fd;
 #else
     char mem_file_template[] = "/dev/shm/ceph-journald-XXXXXX";

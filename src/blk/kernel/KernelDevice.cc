@@ -214,8 +214,9 @@ int KernelDevice::open(const string& p)
     // Best-effort: a failure (e.g. on a raw character device that is already
     // uncached) is logged, not fatal, but it must not pass silently.
     if (ceph_set_nocache(fd_directs[i]) < 0) {
+      int err = errno;  // capture before dout machinery can clobber errno
       dout(1) << __func__ << " failed to set uncached I/O (F_NOCACHE) on "
-              << path << ": " << cpp_strerror(errno)
+              << path << ": " << cpp_strerror(err)
               << " -- direct I/O may be served from the page cache" << dendl;
     }
 
@@ -236,8 +237,9 @@ int KernelDevice::open(const string& p)
     // buffer caches, RocksDB block cache); durability by flush()'s F_FULLFSYNC.
     // This also keeps memory bounded (no device page-cache double-buffering).
     if (ceph_set_nocache(fd_buffereds[i]) < 0) {
+      int err = errno;  // capture before dout machinery can clobber errno
       dout(1) << __func__ << " failed to set uncached I/O (F_NOCACHE) on buffered "
-              << "fd for " << path << ": " << cpp_strerror(errno)
+              << "fd for " << path << ": " << cpp_strerror(err)
               << " -- buffered reads may return stale data after direct writes"
               << dendl;
     }
@@ -248,6 +250,25 @@ int KernelDevice::open(const string& p)
     derr << __func__ << " open got: " << cpp_strerror(r) << dendl;
     goto out_fail;
   }
+
+#if defined(__APPLE__)
+  // One-time durability-capability probe. The commit barrier (ceph_fdatasync ->
+  // fcntl(F_FULLFSYNC)) forces the drive's write cache to stable media; it falls
+  // back to fsync() -- which does NOT flush the drive cache -- on backing stores
+  // that don't implement F_FULLFSYNC (SMB/NFS, some virtio/9p VM disks). Surface
+  // that downgrade once at open so an operator knows the commit barrier is weaker
+  // than full durability on this device. F_FULLFSYNC on a freshly opened fd with
+  // nothing dirty is cheap, and this runs once per device open.
+  if (::fcntl(fd_directs[WRITE_LIFE_NOT_SET], F_FULLFSYNC) < 0) {
+    int err = errno;
+    if (err == ENOTSUP || err == EINVAL || err == ENOTTY) {
+      derr << __func__ << " WARNING: F_FULLFSYNC is unsupported on " << path
+           << " (" << cpp_strerror(err) << "); the commit durability barrier "
+           << "falls back to fsync(), which does NOT flush the drive write cache"
+           << " -- acknowledged writes may be lost on power failure" << dendl;
+    }
+  }
+#endif
 
 #if defined(F_SET_FILE_RW_HINT)
   for (i = WRITE_LIFE_NONE; i < WRITE_LIFE_MAX; i++) {
