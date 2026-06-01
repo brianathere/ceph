@@ -12,6 +12,7 @@
 #else
 #include <endian.h>
 #endif
+#include <cstdlib>  // std::getenv (OPEN_UNLINK temp-dir fallback)
 #include <fcntl.h>
 #include <iterator>
 #include <memory>
@@ -249,11 +250,27 @@ int JournaldClient::open_mem_file()
   case MemFileMode::OPEN_TMPFILE:
     return open(mem_file_dir, O_TMPFILE | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR);
 #endif
-  case MemFileMode::OPEN_UNLINK:
+  case MemFileMode::OPEN_UNLINK: {
+#if defined(__APPLE__)
+    // /dev/shm is a Linux tmpfs and does not exist on macOS; use $TMPDIR (or
+    // /tmp). mkostemp(3) is a glibc extension that is undeclared on macOS, so
+    // use POSIX mkstemp(3) and set FD_CLOEXEC explicitly (mkstemp does not).
+    const char *tmpdir = std::getenv("TMPDIR");
+    if (!tmpdir || !*tmpdir)
+      tmpdir = "/tmp";
+    std::string tmpl = std::string(tmpdir) + "/ceph-journald-XXXXXX";
+    int fd = mkstemp(tmpl.data());
+    if (fd >= 0)
+      fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+    unlink(tmpl.c_str());
+    return fd;
+#else
     char mem_file_template[] = "/dev/shm/ceph-journald-XXXXXX";
     int fd = mkostemp(mem_file_template, O_CLOEXEC);
     unlink(mem_file_template);
     return fd;
+#endif
+  }
   }
   ceph_abort("Unexpected mem_file_mode");
 }

@@ -207,6 +207,17 @@ int KernelDevice::open(const string& p)
       break;
     }
     fd_directs[i] = fd;
+    // macOS has no O_DIRECT open flag (compat redefines it to 0); F_NOCACHE is
+    // what actually keeps these "direct" descriptors out of the unified buffer
+    // cache, which BlueStore relies on for its direct fds. ceph_set_nocache()
+    // is a no-op (success) on platforms that requested real O_DIRECT at open().
+    // Best-effort: a failure (e.g. on a raw character device that is already
+    // uncached) is logged, not fatal, but it must not pass silently.
+    if (ceph_set_nocache(fd_directs[i]) < 0) {
+      dout(1) << __func__ << " failed to set uncached I/O (F_NOCACHE) on "
+              << path << ": " << cpp_strerror(errno)
+              << " -- direct I/O may be served from the page cache" << dendl;
+    }
 
     fd  = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
     if (fd  < 0) {
@@ -567,6 +578,21 @@ int KernelDevice::_aio_start()
 {
   if (aio) {
     dout(10) << __func__ << dendl;
+#if defined(HAVE_DARWIN_AIO)
+    // On macOS the only usable async I/O backend is darwin_gcd_queue_t
+    // (libdispatch + kqueue). io_uring is Linux-only and POSIX AIO
+    // (aio_queue_t) is compiled but unsupported -- its init() succeeds
+    // (kqueue) yet submit_batch() aborts on the first I/O. If bdev_dispatchio
+    // was disabled the constructor fell back to aio_queue_t; detect that here
+    // via the concrete backend type and fail device open cleanly instead of
+    // aborting the running OSD on its first read/write.
+    if (!dynamic_cast<darwin_gcd_queue_t*>(io_queue.get())) {
+      derr << __func__ << " no usable async I/O backend on macOS: POSIX AIO is "
+           << "unsupported; enable bdev_dispatchio to use the libdispatch "
+           << "(GCD) backend" << dendl;
+      return -ENOTSUP;
+    }
+#endif
     int r = io_queue->init(fd_directs);
     if (r < 0) {
       if (r == -EAGAIN) {
@@ -740,7 +766,10 @@ void KernelDevice::_aio_thread()
 		path.c_str(),
 		r,
 #if defined(HAVE_DARWIN_AIO)
-                aio[i]->rw,
+                // Map the GCD backend's read/write tag onto the POSIX AIO
+                // opcode space so g_eio_iotype is reported consistently with
+                // the POSIXAIO sibling backend on the same platform.
+                aio[i]->rw == DARWIN_AIO_WRITE ? LIO_WRITE : LIO_READ,
 #elif defined(HAVE_POSIXAIO)
                 aio[i]->aio.aiocb.aio_lio_opcode,
 #else

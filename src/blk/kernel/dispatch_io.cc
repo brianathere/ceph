@@ -173,7 +173,9 @@ int darwin_gcd_queue_t::submit_batch(aio_iter begin, aio_iter end,
           break;
         }
         if (n == 0)
-          break;  // unexpected short read at EOF; rval!=length aborts upstream
+          break;  // short transfer at EOF; rval==done (matches libaio's preadv
+                  // contract -- the reaper treats rval!=length uniformly across
+                  // all backends, exactly as on Linux)
         done += (uint64_t)n;
         off += (uint64_t)n;
         // Advance past fully-consumed iovecs, then trim the partial one.

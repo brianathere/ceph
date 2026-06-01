@@ -79,9 +79,26 @@ int ClassHandler::open_all_classes()
       // end in ".so", so they are skipped naturally. Class names never contain a
       // '.', so skip any derived name that does (the canonical unversioned
       // libcls_<name>.dylib is loaded instead).
-      if (strchr(cname, '.')) {
-        ldout(cct, 10) << __func__ << " skipping versioned library "
-                       << pde->d_name << dendl;
+      if (char *dot = strchr(cname, '.')) {
+        // The canonical unversioned libcls_<base>.dylib symlink is what we
+        // load. Confirm it actually exists: if a deployment shipped only the
+        // versioned file (e.g. artifacts copied without preserving symlinks),
+        // skipping silently would register zero classes and every RADOS class
+        // op would fail at runtime with no startup error -- so warn loudly.
+        std::string base(cname, dot - cname);
+        std::string canonical = cct->_conf->osd_class_dir + "/" +
+                                CLS_PREFIX + base + CLS_SUFFIX;
+        struct stat st;
+        if (::stat(canonical.c_str(), &st) != 0) {
+          ldout(cct, 0) << __func__ << " WARNING: found versioned class library "
+                        << pde->d_name << " but canonical " << canonical
+                        << " is missing; class '" << base << "' will not be "
+                        << "loaded -- preserve symlinks when staging cls libs"
+                        << dendl;
+        } else {
+          ldout(cct, 10) << __func__ << " skipping versioned library "
+                         << pde->d_name << dendl;
+        }
         continue;
       }
 #endif

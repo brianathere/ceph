@@ -250,10 +250,16 @@ int ceph_memzero_s(void *dest, size_t destsz, size_t count) {
     // explicit_bzero's declaration is gated by __DARWIN_C_LEVEL; neither is
     // guaranteed in this TU. A volatile-pointer write zeroes the buffer and
     // cannot be optimized away, which is exactly the secure-erase guarantee.
-    (void)destsz;
+    // Preserve memset_s()'s C11 Annex K runtime-constraint check: never write
+    // past destsz, and report a violation when count > destsz instead of
+    // overrunning dest (matching the memset_s path used on other platforms).
+    size_t n = (count <= destsz) ? count : destsz;
     volatile unsigned char *p = reinterpret_cast<volatile unsigned char*>(dest);
-    while (count--) {
+    while (n--) {
       *p++ = 0;
+    }
+    if (count > destsz) {
+      return EINVAL;
     }
 #elif defined(HAVE_MEMSET_S)
     return memset_s(dest, destsz, 0, count);
