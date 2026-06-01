@@ -225,6 +225,23 @@ int KernelDevice::open(const string& p)
       break;
     }
     fd_buffereds[i] = fd;
+#if defined(__APPLE__)
+    // Coherence: macOS has no O_DIRECT-style cache invalidation. An F_NOCACHE
+    // write through fd_directs does NOT evict pages cached via this buffered fd,
+    // and there is no posix_fadvise(DONTNEED) to drop them, so a buffered read of
+    // a just-direct-written region could return stale data (a hazard Linux
+    // O_DIRECT avoids by invalidating overlapping page-cache pages). Make the two
+    // fds a single coherent UNCACHED domain by bypassing the buffer cache on the
+    // buffered fd too. Caching is provided at higher layers (BlueStore onode/
+    // buffer caches, RocksDB block cache); durability by flush()'s F_FULLFSYNC.
+    // This also keeps memory bounded (no device page-cache double-buffering).
+    if (ceph_set_nocache(fd_buffereds[i]) < 0) {
+      dout(1) << __func__ << " failed to set uncached I/O (F_NOCACHE) on buffered "
+              << "fd for " << path << ": " << cpp_strerror(errno)
+              << " -- buffered reads may return stale data after direct writes"
+              << dendl;
+    }
+#endif
   }
 
   if (i != WRITE_LIFE_MAX) {

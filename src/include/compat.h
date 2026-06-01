@@ -194,8 +194,10 @@ static inline int sched_getaffinity(pid_t, size_t, cpu_set_t*) { errno = ENOSYS;
  * read-ahead (POSIX_FADV_RANDOM) and to drop cached pages
  * (POSIX_FADV_DONTNEED). Provide the constants and a thin shim so those
  * call sites compile and behave sensibly: RANDOM maps to F_RDAHEAD off,
- * everything else is a successful no-op (the F_NOCACHE direct path below
- * already keeps the page cache out of the way).
+ * everything else is a successful no-op. The DONTNEED no-op is correct on this
+ * port because KernelDevice opens BOTH its block-device descriptors uncached via
+ * ceph_set_nocache()/F_NOCACHE (see below), so there are no resident page-cache
+ * pages to drop -- there is nothing for invalidate_cache() to evict.
  */
 #ifndef POSIX_FADV_NORMAL
 #define POSIX_FADV_NORMAL     0
@@ -271,7 +273,19 @@ static inline int posix_fadvise(int fd, off_t offset, off_t len, int advice) {
 #ifndef _WIN32
 static inline int ceph_fdatasync(int fd) {
 #if defined(__APPLE__)
-  return fcntl(fd, F_FULLFSYNC);
+  // F_FULLFSYNC forces the drive to flush its own write cache to stable media;
+  // plain fsync(2) does NOT, so F_FULLFSYNC is required for data safety on local
+  // APFS/HFS+ SSDs. But it returns ENOTSUP/EINVAL/ENOTTY on backing stores that
+  // do not implement it (SMB/NFS mounts, some virtio/9p VM disks), where fsync(2)
+  // is the strongest barrier available. Fall back instead of failing the
+  // durability barrier -- KernelDevice::flush() treats any negative return as
+  // fatal (ceph_abort), so without this an unsupported backing store crashes the
+  // OSD. Mirrors the libuv/RocksDB/SQLite F_FULLFSYNC fallback.
+  if (fcntl(fd, F_FULLFSYNC) == 0)
+    return 0;
+  if (errno == ENOTSUP || errno == EINVAL || errno == ENOTTY)
+    return fsync(fd);
+  return -1;
 #elif defined(HAVE_FDATASYNC)
   return fdatasync(fd);
 #else
@@ -283,7 +297,18 @@ static inline int ceph_fdatasync(int fd) {
  * Establish uncached ("direct"-equivalent) I/O on a descriptor after open.
  * macOS has no O_DIRECT; F_NOCACHE makes reads/writes bypass the unified
  * buffer cache, which is what BlueStore expects from its "direct" fds.
- * No-op (success) on platforms that requested real O_DIRECT at open time.
+ *
+ * IMPORTANT coherence note: unlike Linux O_DIRECT, F_NOCACHE does NOT invalidate
+ * pages already resident in the unified buffer cache, and macOS has no
+ * posix_fadvise(DONTNEED) to drop them. If one fd to a file were uncached while
+ * another stayed page-cached, a write through the uncached fd would leave stale
+ * pages behind the cached fd -> stale reads. KernelDevice therefore applies this
+ * to BOTH its direct and buffered descriptors on macOS, making the block device
+ * a single uncached (and thus coherent) domain. Durability is provided
+ * separately by ceph_fdatasync()'s F_FULLFSYNC barrier.
+ *
+ * No-op (success) on platforms that requested real O_DIRECT at open time (their
+ * buffered fd stays buffered; the kernel keeps the two coherent).
  * Returns 0 on success, -1 with errno set.
  */
 static inline int ceph_set_nocache(int fd) {

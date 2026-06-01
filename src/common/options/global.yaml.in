@@ -4059,6 +4059,7 @@ options:
   type: int
   level: advanced
   default: 250
+  min: 0
   with_legacy: true
 - name: bdev_aio_max_queue_depth
   type: int

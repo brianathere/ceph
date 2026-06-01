@@ -45,7 +45,19 @@ struct darwin_gcd_data {
   // then a no-op; it keeps us from leaking the kqueue fd / dispatch objects
   // the way aio_queue_t avoids leaking its io_context.
   ~darwin_gcd_data() {
-    if (io_q) dispatch_release(io_q);
+    if (io_q) {
+      // Drain in-flight worker blocks before releasing anything. Each running
+      // block still holds a depth-semaphore unit (signalled only as its very
+      // last act) and touches kq/depth right before finishing: releasing a
+      // semaphore whose count is below its initial bound traps in libdispatch
+      // ("Semaphore object deallocated while in use"), and tearing down kq/depth
+      // under a still-running block is a use-after-free. The normal path runs
+      // shutdown() first (which barriers and nulls these out) so this is then a
+      // no-op; the barrier only does real work on an abnormal teardown that
+      // skipped close()/_aio_stop().
+      dispatch_barrier_sync(io_q, ^{});
+      dispatch_release(io_q);
+    }
     if (depth) dispatch_release(depth);
     if (kq >= 0) ::close(kq);
   }
@@ -92,6 +104,11 @@ int darwin_gcd_queue_t::init(std::vector<int> &fds)
   dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(
     DISPATCH_QUEUE_CONCURRENT, QOS_CLASS_UTILITY, 0);
   d->io_q = dispatch_queue_create("ceph-bstore-gcd", attr);
+  if (!d->io_q) {                 // resource exhaustion -- fail open() cleanly
+    ::close(d->kq);
+    d->kq = -1;
+    return -ENOMEM;
+  }
 
   // Bound concurrently-blocked worker threads. Each in-flight blocking pio holds
   // one GCD thread, so we cap at max_threads to prevent thread explosion;
@@ -102,6 +119,13 @@ int darwin_gcd_queue_t::init(std::vector<int> &fds)
   if (bound == 0)
     bound = 1;
   d->depth = dispatch_semaphore_create(bound);
+  if (!d->depth) {                // out of memory -- unwind io_q and kq
+    dispatch_release(d->io_q);
+    d->io_q = nullptr;
+    ::close(d->kq);
+    d->kq = -1;
+    return -ENOMEM;
+  }
 
   return 0;
 }
@@ -172,10 +196,19 @@ int darwin_gcd_queue_t::submit_batch(aio_iter begin, aio_iter end,
           err = -errno;
           break;
         }
-        if (n == 0)
-          break;  // short transfer at EOF; rval==done (matches libaio's preadv
-                  // contract -- the reaper treats rval!=length uniformly across
-                  // all backends, exactly as on Linux)
+        if (n == 0) {
+          // Reads: a 0-byte preadv is EOF -> return the short count (rval==done),
+          // matching libaio's preadv contract; the reaper treats rval!=length
+          // uniformly across all backends, exactly as on Linux.
+          // Writes: a 0-byte pwritev with bytes still outstanding is a stalled
+          // write (no forward progress), not a normal condition like read EOF.
+          // Surface it as -EIO so it flows through the reaper's IO-error path
+          // (is_expected_ioerr / allow_eio) instead of returning done<length,
+          // which would hit the unrecoverable length-mismatch abort.
+          if (is_write)
+            err = -EIO;
+          break;
+        }
         done += (uint64_t)n;
         off += (uint64_t)n;
         // Advance past fully-consumed iovecs, then trim the partial one.
@@ -233,7 +266,12 @@ int darwin_gcd_queue_t::get_next_completed(int timeout_ms, aio_t **paio, int max
       return n;
   }
 
-  // 2) Block on the doorbell up to timeout_ms.
+  // 2) Block on the doorbell up to timeout_ms. Clamp a negative interval (a
+  //    misconfigured bdev_aio_poll_ms) to 0: a negative timespec makes kevent()
+  //    fail EINVAL, which the reaper (KernelDevice::_aio_thread) escalates to a
+  //    fatal abort. 0 means a non-blocking poll, which is safe.
+  if (timeout_ms < 0)
+    timeout_ms = 0;
   struct timespec t = {
     timeout_ms / 1000,
     (timeout_ms % 1000) * 1000 * 1000

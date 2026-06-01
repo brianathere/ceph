@@ -236,6 +236,18 @@ int main() {
     std::printf("  [E8 drain-tail] delivered %d/%d with max=1\n", reaped, N);
   }
 
+  // ---- E9: negative poll timeout is clamped, not a fatal EINVAL ----------
+  // A misconfigured (negative) bdev_aio_poll_ms would build an invalid timespec
+  // {neg, neg}; kevent() then fails EINVAL and the reaper escalates that to a
+  // ceph_abort. get_next_completed must clamp a negative timeout to a 0ms
+  // non-blocking poll and return 0 (no work pending), never -EINVAL.
+  {
+    aio_t* batch[4];
+    int r = q.get_next_completed(-250, batch, 4);
+    CHECK(r == 0, "negative timeout must clamp to a 0ms poll and return 0, not -EINVAL");
+    std::printf("  [E9 neg-timeout] get_next_completed(-250)=%d (expected 0)\n", r);
+  }
+
   q.shutdown();
   std::printf("  [shutdown] clean\n");
 
