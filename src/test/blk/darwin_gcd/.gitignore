@@ -1,0 +1,6 @@
+# build artifacts from run.sh
+run
+run_edge
+run_clsname
+*.o
+*.dSYM/
